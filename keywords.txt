@@ -1,0 +1,51 @@
+#######################################
+# Syntax coloring for ESPNowUtilities
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+ESPNowConnection	KEYWORD1
+PeerInfo	KEYWORD1
+PairingRequestData	KEYWORD1
+PairingResponseData	KEYWORD1
+EMsgType	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+begin	KEYWORD2
+send	KEYWORD2
+copyFrameTo	KEYWORD2
+isPaired	KEYWORD2
+getPeerInfo	KEYWORD2
+removeLostPeer	KEYWORD2
+msgReceived	KEYWORD2
+getMAC	KEYWORD2
+mac2uint64	KEYWORD2
+mac2string	KEYWORD2
+copyStringToBuffer	KEYWORD2
+copyFieldToCString	KEYWORD2
+onAppMsg	KEYWORD2
+onPairingRequestMsg	KEYWORD2
+onPairingResponseMsg	KEYWORD2
+sendToPeer	KEYWORD2
+setPeer	KEYWORD2
+getPeer	KEYWORD2
+removePeer	KEYWORD2
+sendToUnpairedAddress	KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+cLinkProtocolVersion	LITERAL1
+cAppMsgTypeFirst	LITERAL1
+cDefaultWifiChannel	LITERAL1
+cBroadcastAddress	LITERAL1
+cPeerTimeoutMs	LITERAL1
+cNameLen	LITERAL1
+ePairingRequest	LITERAL1
+ePairingResponse	LITERAL1
