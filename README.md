@@ -20,6 +20,22 @@ What it deliberately does **not** do is define your messages. The library routes
 whose first byte is at or above `cAppMsgTypeFirst` and hands it to you unopened. You choose the
 structs, the field order and the versioning.
 
+## Requirements
+
+- Two ESP32 boards — one at each end of the link.
+- **Arduino-ESP32 core 3.x.** The ESP-NOW callbacks use the ESP-IDF 5.x signatures: the receive
+  callback takes `esp_now_recv_info_t` and the send callback takes `esp_now_send_info_t`. It will
+  not compile against core 2.x, where the receive callback is still
+  `(const uint8_t *mac_addr, const uint8_t *data, int len)` and `esp_now_recv_info_t` does not
+  exist.
+- The **send** callback is the stricter of the two, and rules out the earliest 3.x cores as well.
+  `esp_now_send_info_t` arrived later than `esp_now_recv_info_t`: ESP-IDF 5.1 already has the
+  latter, but its send callback is still `(const uint8_t *mac_addr, esp_now_send_status_t status)`.
+  Built and tested against core **3.3.11** (ESP-IDF 5.5). If your core is old enough that
+  `esp_now_send_info_t` is undefined, the compiler will say so at `dataSentCB`.
+
+No other library is needed.
+
 ## Installing
 
 **Library Manager** — in the Arduino IDE, *Sketch → Include Library → Manage Libraries*, search for
@@ -27,8 +43,6 @@ structs, the field order and the versioning.
 
 **From this repository** — *Code → Download ZIP*, then *Sketch → Include Library → Add .ZIP
 Library*. Use this if you want a version that has not been released yet.
-
-Requires the ESP32 core; there are no other dependencies.
 
 ## Using it
 
