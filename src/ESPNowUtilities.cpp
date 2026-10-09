@@ -146,6 +146,14 @@ bool ESPNowConnection::begin(uint8_t channel)
 // ----------------------------------------------------------------------------------------
 bool ESPNowConnection::sendToPeer(const void* data, size_t len)
 {
+  // A derived class can call this directly, and the failure report below reads data[0].
+  if (data == nullptr || len == 0)
+  {
+    Serial.print(__PRETTY_FUNCTION__);
+    Serial.println(" -> no data to send");
+    return false;
+  }
+
   xSemaphoreTake(myPeerMutex, portMAX_DELAY);
 
   if (myHasPeer == false)

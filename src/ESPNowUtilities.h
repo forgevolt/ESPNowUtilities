@@ -200,7 +200,8 @@ class ESPNowConnection
 
     // Sends len bytes to the currently paired peer. Copies the destination MAC out under
     // myPeerMutex and releases it before calling esp_now_send(), so the radio call never runs
-    // with the lock held. Returns false (and logs) if there is no peer, or if the send fails.
+    // with the lock held. Returns false (and logs) if there is no data or no peer, or if the
+    // send fails.
     bool sendToPeer(const void* data, size_t len);
 
     // Sets the single peer this connection communicates with. Fails (returns false) if
