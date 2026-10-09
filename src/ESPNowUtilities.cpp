@@ -180,26 +180,9 @@ bool ESPNowConnection::send(const PairingResponseData& pd, const uint8_t* mac)
   // Response has to be sent to the peer that initiated that request. Therefore, one has
   // to provide the MAC address of the requester
   //
-  // That requester may or may not already be registered, and esp_now_send() only accepts a
-  // destination that is in the driver's peer table. The driver is asked directly rather than
-  // consulting our own tracked peer: the two are not the same thing - the table also holds the
-  // temporary broadcast entry - and only the driver's view decides whether the send can succeed.
-  // sendToUnpairedAddress() unregisters the address afterwards, so it is used only when the
-  // address is genuinely absent; calling it for an address that is our tracked peer would drop
-  // that peer from the table while myHasPeer stayed true.
-  if (esp_now_is_peer_exist(mac) == false)
-    return sendToUnpairedAddress(mac, &pd, sizeof(PairingResponseData));
-
-  const esp_err_t result = esp_now_send(mac, (const uint8_t*) &pd, sizeof(PairingResponseData));
-  if (result != ESP_OK)
-  {
-    Serial.print(__PRETTY_FUNCTION__);
-    Serial.print(" -> esp_now_send failed: ");
-    Serial.println(result);
-    return false;
-  }
-
-  return true;
+  // That requester may or may not already be registered - usually it is, because the caller
+  // has just made it our peer. sendToUnpairedAddress() handles both cases.
+  return sendToUnpairedAddress(mac, &pd, sizeof(PairingResponseData));
 }
 
 // ----------------------------------------------------------------------------------------
@@ -651,30 +634,35 @@ bool ESPNowConnection::sendToUnpairedAddress(const uint8_t mac[6], const void* d
   // Deliberately does not touch myPeer/myHasPeer or myPeerMutex at all - this is a
   // one-off send to an address (typically the broadcast address) that is not, and
   // should not become, our tracked peer.
-  esp_now_peer_info_t peer;
-  memset(&peer, 0, sizeof(peer));
-  peer.channel = myChannel;
-  peer.encrypt = false;
-  memcpy(peer.peer_addr, mac, 6);
+  //
+  // An address the driver already knows - our tracked peer, or one the sketch registered - is
+  // sent to as it is and left registered. Unregistering the tracked peer here would make every
+  // later sendToPeer() fail while myHasPeer stays true, with nothing to ever clear it.
+  const bool wasRegistered = esp_now_is_peer_exist(mac);
 
-  // Same idempotence trick as in setPeer(), and the same reason for ignoring the result:
-  // ESP_ERR_ESPNOW_NOT_FOUND is expected whenever no stale entry is left over.
-  esp_now_del_peer(mac);
-
-  if (esp_now_add_peer(&peer) != ESP_OK)
+  if (wasRegistered == false)
   {
-    Serial.print(__PRETTY_FUNCTION__);
-    Serial.print(" -> failed to register temporary peer ");
-    Serial.println(mac2string(mac));
-    return false;
+    esp_now_peer_info_t peer;
+    memset(&peer, 0, sizeof(peer));
+    peer.channel = myChannel;
+    peer.encrypt = false;
+    memcpy(peer.peer_addr, mac, 6);
+
+    if (esp_now_add_peer(&peer) != ESP_OK)
+    {
+      Serial.print(__PRETTY_FUNCTION__);
+      Serial.print(" -> failed to register temporary peer ");
+      Serial.println(mac2string(mac));
+      return false;
+    }
   }
 
   esp_err_t result = esp_now_send(mac, (const uint8_t*)data, len);
 
-  // Unregister the temporary peer again. Unlike the two calls above this one *should*
-  // succeed, but the result is still discarded: the send outcome below is what the caller
-  // cares about, and there is no useful recovery from a failed unregister.
-  esp_now_del_peer(mac);
+  // Unregister only what was registered above. The result is discarded: there is no useful
+  // recovery from a failed unregister.
+  if (wasRegistered == false)
+    esp_now_del_peer(mac);
 
   if (result != ESP_OK)
   {

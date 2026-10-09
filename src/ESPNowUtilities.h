@@ -117,13 +117,30 @@ class ESPNowConnection
     virtual bool send(const PairingRequestData& pd);
     virtual bool send(const PairingResponseData& pd, const uint8_t* mac);
     // Sends any application message to the paired peer. The first byte of T must be its
-    // message type, and that type must be >= cAppMsgTypeFirst; the transport does not look
-    // inside the struct beyond forwarding its bytes.
+    // message type, and that type must be >= cAppMsgTypeFirst; the transport checks that byte
+    // and forwards the rest unread. Returns false (and logs) if the type is out of range.
     template<typename T>
     bool send(const T& msg)
     {
       static_assert(std::is_trivially_copyable<T>::value,
                     "an ESP-NOW message must be trivially copyable");
+      // The receiver drops any frame shorter than msgType + version as too short.
+      static_assert(sizeof(T) >= 2,
+                    "an ESP-NOW message needs at least a message type and a version byte");
+      static_assert(sizeof(T) <= ESP_NOW_MAX_DATA_LEN_V2,
+                    "an ESP-NOW message must not exceed ESP_NOW_MAX_DATA_LEN_V2 bytes");
+
+      // A lower type would reach the peer as a pairing frame or as foreign traffic.
+      const uint8_t msgType = static_cast<const uint8_t*>(static_cast<const void*>(&msg))[0];
+      if (msgType < cAppMsgTypeFirst)
+      {
+        Serial.print(__PRETTY_FUNCTION__);
+        Serial.print(" -> msgType ");
+        Serial.print(int(msgType));
+        Serial.println(" is below cAppMsgTypeFirst, not sent");
+        return false;
+      }
+
       return sendToPeer(&msg, sizeof(T));
     }
 
@@ -206,10 +223,9 @@ class ESPNowConnection
     // e.g. a failed send to some other address - is simply ignored).
     void removePeer(const uint8_t mac[6]);
 
-    // Temporarily registers `mac` as a raw ESP-NOW peer (required by esp_now_send()
-    // for any destination, including the broadcast address), sends `data`/`len` to it,
-    // then unregisters it again. For one-off sends to an address that is not (and
-    // should not become) our tracked peer - e.g. Receiver's broadcast pairing request.
+    // One-off send to an address that is not (and should not become) our tracked peer, e.g. an
+    // initiator's broadcast pairing request. An unknown address is registered for the send only;
+    // one that is already registered, including the tracked peer, is used as it is.
     // Does not read or modify the tracked peer in any way.
     bool sendToUnpairedAddress(const uint8_t mac[6], const void* data, size_t len);
 
