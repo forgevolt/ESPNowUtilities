@@ -106,7 +106,8 @@ class ESPNowConnection
     ESPNowConnection();
     virtual ~ESPNowConnection();
 
-    // Call from setup(). Defaults to channel 1.
+    // Call from setup(). Defaults to channel 1. Only one instance per program can be started;
+    // begin() on a second one fails while the first is in use.
     virtual bool begin(uint8_t channel = cDefaultWifiChannel);
 
     // Send a pairing request to the paired peer, or a pairing response to the device at mac.

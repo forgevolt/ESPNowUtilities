@@ -23,7 +23,8 @@ constexpr uint8_t ESPNowConnection::cBroadcastAddress[6];
 // per-frame rate that is not survivable.
 static constexpr unsigned long cDiscardReportIntervalMs = 1000;
 
-// The single instance, through which the two static callbacks reach the object.
+// The single instance, through which the two static callbacks reach the object. Claimed by the
+// first successful begin(), released by that instance's destructor.
 static ESPNowConnection* theConnection = nullptr;
 
 // ---- ESPNowConnection ------------------------------------------------------------------
@@ -32,18 +33,17 @@ static ESPNowConnection* theConnection = nullptr;
 ESPNowConnection::ESPNowConnection()
 : myChannel(cDefaultWifiChannel)
 {
-  // One instance per program: the two static callbacks reach the object through theConnection,
-  // so constructing a second one takes the callbacks over from the first.
-  theConnection = this;
+  // theConnection is claimed in begin(), not here, so constructing a second instance cannot
+  // take the callbacks over from one already in use.
   myPeerMutex = xSemaphoreCreateMutex();
 }
 
 // ----------------------------------------------------------------------------------------
 ESPNowConnection::~ESPNowConnection()
 {
-  // Only the instance that started ESP-NOW and still owns the callbacks shuts it down. Any
-  // other - one that never ran begin(), or whose callbacks a later instance has taken over -
-  // would otherwise stop ESP-NOW underneath the instance still using it.
+  // Only the instance that started ESP-NOW shuts it down. Any other - one that never ran
+  // begin(), or whose begin() was refused - would otherwise stop ESP-NOW underneath the
+  // instance still using it.
   if (myIsInitialized == true && theConnection == this)
   {
     // Unregister first: with the callbacks gone, no frame can reach dataRecvCB/dataSentCB and
@@ -80,6 +80,16 @@ bool ESPNowConnection::begin(uint8_t channel)
   {
     Serial.print(__PRETTY_FUNCTION__);
     Serial.println(" -> peer mutex could not be created");
+    return false;
+  }
+
+  // One instance per program: the two static callbacks reach the object through theConnection.
+  // A second instance is refused rather than allowed to take the callbacks over, which would
+  // leave the first one running but deaf.
+  if (theConnection != nullptr && theConnection != this)
+  {
+    Serial.print(__PRETTY_FUNCTION__);
+    Serial.println(" -> another ESPNowConnection is already in use");
     return false;
   }
 
@@ -135,7 +145,8 @@ bool ESPNowConnection::begin(uint8_t channel)
     return false;
   }
 
-  // Once ESP-NOW is successfully initialized, register callbacks
+  // Once ESP-NOW is successfully initialized, claim the callbacks and register them
+  theConnection = this;
   esp_now_register_send_cb(dataSentCB);
   esp_now_register_recv_cb(dataRecvCB);
 
