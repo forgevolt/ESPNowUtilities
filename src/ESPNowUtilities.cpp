@@ -41,16 +41,24 @@ ESPNowConnection::ESPNowConnection()
 // ----------------------------------------------------------------------------------------
 ESPNowConnection::~ESPNowConnection()
 {
-  // Unregister first: with the callbacks gone, no frame can reach dataRecvCB/dataSentCB and
-  // dereference theConnection or take myPeerMutex while it is being destroyed.
-  esp_now_unregister_recv_cb();
-  esp_now_unregister_send_cb();
-  esp_now_deinit();
+  // Only the instance that started ESP-NOW and still owns the callbacks shuts it down. Any
+  // other - one that never ran begin(), or whose callbacks a later instance has taken over -
+  // would otherwise stop ESP-NOW underneath the instance still using it.
+  if (myIsInitialized == true && theConnection == this)
+  {
+    // Unregister first: with the callbacks gone, no frame can reach dataRecvCB/dataSentCB and
+    // dereference theConnection or take myPeerMutex while it is being destroyed.
+    esp_now_unregister_recv_cb();
+    esp_now_unregister_send_cb();
+    esp_now_deinit();
+  }
 
   if (theConnection == this)
     theConnection = nullptr;
 
-  vSemaphoreDelete(myPeerMutex);
+  // Null if the constructor could not create it - begin() reports that case.
+  if (myPeerMutex != nullptr)
+    vSemaphoreDelete(myPeerMutex);
 }
 
 // ----------------------------------------------------------------------------------------
