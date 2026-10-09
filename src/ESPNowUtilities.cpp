@@ -613,6 +613,8 @@ void ESPNowConnection::removeLostPeer()
   if (myHasPeer == true && (now - myPeer.timeLastMsgFromPeer > cPeerTimeoutMs))
   {
     memcpy(lostAddr, myPeer.peer.peer_addr, sizeof(lostAddr));
+    // Inside the lock on purpose: released first, a re-pairing setPeer() in the WiFi task could
+    // re-add this address in between, and this delete would then remove the new entry.
     esp_now_del_peer(myPeer.peer.peer_addr);
     myHasPeer = false;
     removed   = true;
