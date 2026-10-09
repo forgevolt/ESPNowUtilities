@@ -11,14 +11,13 @@ constexpr uint8_t ESPNowConnection::cBroadcastAddress[6];
 #endif
 
 
-// Shortest gap between two reports of a frame the transport had to throw away.
+// Shortest gap between two reports of a frame the transport had to throw away, or of a send the
+// peer did not acknowledge.
 //
-// Both paths below run in the WiFi task, once per arriving frame, and neither is under this
-// library's control: a peer that has not yet noticed the pairing is gone, or any other ESP-NOW
-// device on this channel, will keep them coming at its own rate. One report costs upwards of a
-// hundred bytes of serial and a String allocation - at twenty frames a second that is a fifth of
-// the task's time spent printing instead of receiving, which makes the condition worse the
-// longer it lasts and can starve the task badly enough to trip the watchdog.
+// All three reports run in the WiFi task, once per frame, at a rate the library does not
+// control: other devices set it on the receive path, the sketch on the send path. Each report
+// costs about a hundred bytes of serial and a String allocation; printing every one can starve
+// the task badly enough to trip the watchdog.
 //
 // Reporting is kept, because a frame that cannot be placed is worth knowing about; it is the
 // per-frame rate that is not survivable.
@@ -458,12 +457,39 @@ void ESPNowConnection::dataSentCB(const esp_now_send_info_t* info, esp_now_send_
     // is routine at 2.4 GHz. Liveness is decided solely by removeLostPeer(), which
     // keys on how long it has been since the peer was last *heard from* - the direction that
     // actually matters for control.
-    Serial.print(__PRETTY_FUNCTION__);
-    Serial.print(" -> send to ");
-    Serial.print(mac2string(info->des_addr));
-    Serial.print(" not acknowledged (status ");
-    Serial.print(int(status));
-    Serial.println(")");
+    //
+    // Rate-limited - see cDiscardReportIntervalMs. A peer that has gone out of range fails
+    // every frame the sketch sends until removeLostPeer() drops it.
+    static unsigned long lastReportMs = 0;
+    static uint32_t      suppressed   = 0;
+
+    const unsigned long now = millis();
+
+    if (now - lastReportMs >= cDiscardReportIntervalMs)
+    {
+      lastReportMs = now;
+
+      Serial.print(__PRETTY_FUNCTION__);
+      Serial.print(" -> send to ");
+      Serial.print(mac2string(info->des_addr));
+      Serial.print(" not acknowledged (status ");
+      Serial.print(int(status));
+      Serial.print(")");
+
+      if (suppressed > 0)
+      {
+        Serial.print(" (");
+        Serial.print(suppressed);
+        Serial.print(" more since the last report)");
+      }
+
+      Serial.println();
+      suppressed = 0;
+    }
+    else
+    {
+      suppressed++;
+    }
   }
 }
 
