@@ -11,10 +11,11 @@ part you would otherwise write again for every project:
 - **A single tracked peer.** Deliberately one, not many: a second device asking to pair while
   you are already paired is refused rather than silently accepted. The peer is dropped when
   nothing has been heard from it for `cPeerTimeoutMs`, so a link that goes away is noticed.
-- **Sender authentication.** Application frames are delivered only if they came from the paired
-  peer, keyed on the frame's source address rather than anything inside the payload.
+- **Sender filtering.** Application frames are delivered only if they came from the paired
+  peer, keyed on the frame's source address rather than anything inside the payload. This is a
+  filter, not authentication: on an unencrypted link a source address can be forged.
 - **Thread safety.** ESP-NOW callbacks run in WiFi task context. Peer state is behind a mutex,
-  and the radio is never called while that mutex is held.
+  and `esp_now_send()` is never called while that mutex is held.
 
 What it deliberately does **not** do is define your messages. The library routes any frame
 whose first byte is at or above `cAppMsgTypeFirst` and hands it to you unopened. You choose the
@@ -72,9 +73,12 @@ class MyLink : public ESPNowConnection
 };
 ```
 
-`send(msg)` sends any trivially-copyable struct to the paired peer. `copyFrameTo()` takes a
+`send(msg)` sends any trivially copyable struct to the paired peer. `copyFrameTo()` takes a
 size-checked copy of a received frame — the length is whatever arrived over the air, so it is
 checked rather than trusted.
+
+Call `removeLostPeer()` from `loop()`. It is what drops a peer that has gone silent; without it
+a lost link is never noticed and the board cannot pair again.
 
 Everything the library declares is nested inside `ESPNowConnection`, so it adds exactly one name
 to the global namespace. A derived class sees `PeerInfo`, `PairingRequestData`, `cNameLen` and
@@ -89,7 +93,7 @@ one constant at the top decides which one initiates.
 to a receiver, with the receiver answering. Needs no hardware: the stick values are generated,
 so two bare boards show the link working.
 
-Both examples send at several times the rate a peer is dropped at. That is not incidental — see
+Both examples send several times within every `cPeerTimeoutMs`. That is not incidental — see
 below.
 
 ## Keeping a link alive
@@ -120,7 +124,7 @@ Two independent version bytes:
 - Your payloads carry their own, checked by you.
 
 They are separate so that a change to your message format does not invalidate the handshake, and
-a library upgrade does not force your wire format to rev.
+a library upgrade does not force a change to your wire format.
 
 ## Licence
 

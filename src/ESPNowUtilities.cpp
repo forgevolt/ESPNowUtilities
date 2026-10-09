@@ -3,9 +3,9 @@
 #include <stdint.h>
 
 
-// Out-of-line definition of the in-class initialised constant. Required before C++17, where a
+// Out-of-line definition of the in-class initialized constant. Required before C++17, where a
 // constexpr static data member that is ODR-used - here it is passed as a pointer - still needs
-// one. From C++17 on the in-class initialiser is implicitly inline and this would be redundant.
+// one. From C++17 on the in-class initializer is implicitly inline and this would be redundant.
 #if __cplusplus < 201703L
 constexpr uint8_t ESPNowConnection::cBroadcastAddress[6];
 #endif
@@ -23,7 +23,7 @@ constexpr uint8_t ESPNowConnection::cBroadcastAddress[6];
 // per-frame rate that is not survivable.
 static constexpr unsigned long cDiscardReportIntervalMs = 1000;
 
-// There is just one instance (singleton). Will be called by the two CB functions.
+// The single instance, through which the two static callbacks reach the object.
 static ESPNowConnection* theConnection = nullptr;
 
 // ---- ESPNowConnection ------------------------------------------------------------------
@@ -69,7 +69,7 @@ bool ESPNowConnection::begin(uint8_t channel)
   if (myIsInitialized == true)
   {
     Serial.print(__PRETTY_FUNCTION__);
-    Serial.println(" -> already initialised, ignoring");
+    Serial.println(" -> already initialized, ignoring");
     return true;
   }
 
@@ -83,7 +83,7 @@ bool ESPNowConnection::begin(uint8_t channel)
     return false;
   }
 
-  // Set device as a Wi-Fi Station
+  // Set device as a Wi-Fi station
   WiFi.mode(WIFI_STA);
 
   // Stop the station from going looking for an access point on its own. ESP-NOW rides on the
@@ -97,12 +97,12 @@ bool ESPNowConnection::begin(uint8_t channel)
   WiFi.setAutoReconnect(false);
   WiFi.disconnect();
 
-  // Explicitly set Wi-Fi Channel
+  // Explicitly set Wi-Fi channel
   esp_err_t err = esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
   if (err != ESP_OK)
   {
     Serial.print(__PRETTY_FUNCTION__);
-    Serial.print(" -> Failed to set Wi-Fi channel: ");
+    Serial.print(" -> failed to set Wi-Fi channel: ");
     Serial.println(err);
     return false;
   }
@@ -110,20 +110,20 @@ bool ESPNowConnection::begin(uint8_t channel)
   myChannel = channel; // remembered so setPeer() can pin the peer to the same channel
                         // without an extra esp_wifi_get_channel() round-trip
 
-  // Disable WiFi power-save to prevent packet loss / latency spikes
+  // Disable Wi-Fi power saving to prevent packet loss and latency spikes
   esp_wifi_set_ps(WIFI_PS_NONE);
 
   if (esp_wifi_get_mac(WIFI_IF_STA, myMACAddr) == ESP_OK)
   {
     Serial.print("Device MAC: ");
     Serial.print(mac2string(myMACAddr));
-    Serial.print(" on Channel ");
+    Serial.print(" on channel ");
     Serial.println(channel);
   } 
   else 
   {
     Serial.print(__PRETTY_FUNCTION__);
-    Serial.println(" -> Failed to read MAC address");
+    Serial.println(" -> failed to read MAC address");
     return false;
   }
 
@@ -131,7 +131,7 @@ bool ESPNowConnection::begin(uint8_t channel)
   if (esp_now_init() != ESP_OK) 
   {
     Serial.print(__PRETTY_FUNCTION__);
-    Serial.println(" -> Error initializing ESP-NOW");
+    Serial.println(" -> failed to initialize ESP-NOW");
     return false;
   }
 
@@ -193,8 +193,8 @@ bool ESPNowConnection::send(const PairingRequestData& pd)
 // ----------------------------------------------------------------------------------------
 bool ESPNowConnection::send(const PairingResponseData& pd, const uint8_t* mac)
 {
-  // Response has to be sent to the peer that initiated that request. Therefore, one has
-  // to provide the MAC address of the requester
+  // The response goes to the device that sent the request, so the caller passes its MAC
+  // address.
   //
   // That requester may or may not already be registered - usually it is, because the caller
   // has just made it our peer. sendToUnpairedAddress() handles both cases.
@@ -322,17 +322,18 @@ void ESPNowConnection::dataRecvCB(const esp_now_recv_info_t* info, const uint8_t
         if (len != sizeof(PairingRequestData))
         {
           Serial.print(__PRETTY_FUNCTION__);
-          Serial.print(" -> invalid len for PairingRequestData: ");
+          Serial.print(" -> invalid length for PairingRequestData: ");
           Serial.print(len);
-          Serial.print(", expecting: ");
+          Serial.print(", expected ");
           Serial.println(int(sizeof(PairingRequestData)));
           return;
         }
         PairingRequestData pd;
         memcpy(&pd, incomingData, sizeof(PairingRequestData));
 
-        // The sender is identified by the frame's source address, which the radio authenticates;
-        // a MAC carried in the payload would be sender-controlled.
+        // The sender is identified by the frame's source address rather than by a MAC in the
+        // payload, which the sender controls. The source address can still be forged on an
+        // unencrypted link.
         theConnection->onPairingRequestMsg(pd, info->src_addr);
       }
       break;
@@ -342,9 +343,9 @@ void ESPNowConnection::dataRecvCB(const esp_now_recv_info_t* info, const uint8_t
         if (len != sizeof(PairingResponseData))
         {
           Serial.print(__PRETTY_FUNCTION__);
-          Serial.print(" -> invalid len for PairingResponseData: ");
+          Serial.print(" -> invalid length for PairingResponseData: ");
           Serial.print(len);
-          Serial.print(", expecting: ");
+          Serial.print(", expected ");
           Serial.println(int(sizeof(PairingResponseData)));
           return;
         }
@@ -359,12 +360,12 @@ void ESPNowConnection::dataRecvCB(const esp_now_recv_info_t* info, const uint8_t
       {
         // Application frames are accepted only from the peer we are paired with. getPeer()
         // succeeding is, by construction, that confirmation. Without this, any device in radio
-        // range can drive the robot - including while it is paired with its own transmitter,
-        // because pairing state is not otherwise consulted on this path.
+        // range could inject application frames, even while we are paired, because pairing
+        // state is not otherwise consulted on this path.
         PeerInfo pi;
         if (theConnection->getPeer(info->src_addr, pi) == false)
         {
-          // Rate limited - see cDiscardReportIntervalMs. A sender that has not noticed the
+          // Rate-limited - see cDiscardReportIntervalMs. A sender that has not noticed the
           // pairing is gone keeps these arriving at its full rate.
           static unsigned long lastReportMs = 0;
           static uint32_t      suppressed   = 0;
@@ -408,7 +409,7 @@ void ESPNowConnection::dataRecvCB(const esp_now_recv_info_t* info, const uint8_t
       }
 
       // Runs in WiFi task context. Any foreign ESP-NOW frame on this channel lands here, and a
-      // device transmitting nearby sets the rate, so this is rate limited the same way - see
+      // device transmitting nearby sets the rate, so this is rate-limited the same way - see
       // cDiscardReportIntervalMs.
       {
         static unsigned long lastReportMs = 0;
@@ -455,7 +456,7 @@ void ESPNowConnection::dataSentCB(const esp_now_send_info_t* info, esp_now_send_
     // Deliberately does not drop the peer. A failed send means one frame went un-ACKed, which
     // is routine at 2.4 GHz. Liveness is decided solely by removeLostPeer(), which
     // keys on how long it has been since the peer was last *heard from* - the direction that
-    // actually matters for control.
+    // tells us whether the peer is still there.
     //
     // Rate-limited - see cDiscardReportIntervalMs. A peer that has gone out of range fails
     // every frame the sketch sends until removeLostPeer() drops it.
@@ -504,10 +505,10 @@ bool ESPNowConnection::setPeer(const uint8_t mac[6], uint8_t device, const char 
     // Duplicate pairing request from the device we're already paired with - nothing to
     // do, but not an error either: the caller can still (re-)send its response.
     //
-    // It does count as life, though. A peer only asks again because it has lost the pairing,
-    // and that is precisely the moment this end must not go on to time it out as well: it has
-    // stopped sending application frames, so without this the timer runs out while the two are
-    // in the middle of agreeing to start over.
+    // It does count as a sign of life, though. A peer only asks again because it has lost the
+    // pairing, and that is precisely the moment this end must not go on to time it out as well:
+    // it has stopped sending application frames, so without this the timer runs out while the
+    // two are in the middle of agreeing to start over.
     myPeer.timeLastMsgFromPeer = millis();
 
     xSemaphoreGive(myPeerMutex);
@@ -625,9 +626,9 @@ void ESPNowConnection::removeLostPeer()
   if (removed == true)
   {
     Serial.print(__PRETTY_FUNCTION__);
-    Serial.print(" ");
+    Serial.print(" -> peer ");
     Serial.print(mac2string(lostAddr));
-    Serial.println(" timeout -> removed");
+    Serial.println(" timed out, removed");
   }
 }
 

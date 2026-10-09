@@ -1,8 +1,8 @@
 #pragma once
 
-// ESP-NOW classes to support direct communication between two or more ESP32 modules
+// A paired, single-peer ESP-NOW link between two ESP32 boards
 //
-// This code is based on the following, excellent tutorials:
+// This code is based on the following excellent tutorials:
 //   https://randomnerdtutorials.com/esp-now-esp32-arduino-ide/
 //   https://randomnerdtutorials.com/esp-now-two-way-communication-esp32/
 //   https://randomnerdtutorials.com/esp-now-auto-pairing-esp32-esp8266/
@@ -20,12 +20,8 @@
 #include <freertos/semphr.h>
 
 // ----------------------------------------------------------------------------------------
-// ESP-NOW messages types: The following data types are used to transmit data using 
-// the ESP-NOW protocol 
-// ----------------------------------------------------------------------------------------
-
-// ----------------------------------------------------------------------------------------
-// ESPNowConnection: Abstract base class for transmitter and receiver.
+// ESPNowConnection: Base class for both ends of the link. Derive from it and override
+// onAppMsg() and the pairing hooks.
 // ----------------------------------------------------------------------------------------
 
 class ESPNowConnection
@@ -33,9 +29,9 @@ class ESPNowConnection
   public:
     // ---- Wire protocol -----------------------------------------------------------------
 
-    // Version of the pairing frames below, sent as their second byte and checked on receipt, so a
-    // transmitter and receiver built from different revisions of this header fail with a logged
-    // mismatch instead of silently exchanging misinterpreted data. Application payloads carry a
+    // Version of the pairing frames below, sent as their second byte and checked on receipt, so
+    // two ends built from different revisions of this header fail with a logged mismatch
+    // instead of silently exchanging misinterpreted data. Application payloads carry a
     // version of their own, so the two evolve independently.
     static constexpr uint8_t cLinkProtocolVersion = 1;
 
@@ -44,10 +40,10 @@ class ESPNowConnection
 
     enum EMsgType : uint8_t
     {
-      // Deliberately not starting at 0. msgType is the first byte of every frame, so with values
-      // 0..3 an all-zero buffer parsed as a valid pairing request and any foreign ESP-NOW frame
-      // whose first byte happened to be 0..3 could be accepted. 0xA1.. makes both an all-zero and
-      // an all-0xFF frame invalid.
+      // Deliberately not starting at 0. msgType is the first byte of every frame: with values
+      // 0..3, an all-zero buffer would parse as a valid pairing request, and any foreign ESP-NOW
+      // frame whose first byte happened to be 0..3 could be accepted. 0xA1.. makes both an
+      // all-zero and an all-0xFF frame invalid.
       ePairingRequest  = 0xA1,
       ePairingResponse = 0xA2
     };
@@ -62,7 +58,7 @@ class ESPNowConnection
       uint8_t msgType         = ePairingRequest;
       uint8_t protocolVersion = cLinkProtocolVersion;
       uint8_t device          = 0;          // Application-defined device kind; 0 = unspecified
-      char    name[cNameLen]  = {};         // Name of the receiver
+      char    name[cNameLen]  = {};         // Name of the requesting device
     };
 
     struct __attribute__((packed)) PairingResponseData
@@ -70,7 +66,7 @@ class ESPNowConnection
       uint8_t msgType         = ePairingResponse;
       uint8_t protocolVersion = cLinkProtocolVersion;
       uint8_t device          = 0;          // Application-defined device kind; 0 = unspecified
-      char    name[cNameLen]  = {};         // Name of transmitter
+      char    name[cNameLen]  = {};         // Name of the responding device
     };
 
 
@@ -87,16 +83,16 @@ class ESPNowConnection
     static constexpr uint8_t cBroadcastAddress[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
     // A peer is considered lost if nothing has been received from it for this long, at which point
-    // pairing has to be established again. Deliberately longer than the control loop's own staleness
-    // threshold: a brief dropout should stop the robot without destroying the pairing, so the link
-    // resumes when it recovers instead of needing a full handshake.
+    // pairing has to be established again. Keep any staleness check of your own data shorter than
+    // this: a brief dropout then stops the application without destroying the pairing, and the
+    // link resumes when it recovers instead of needing a full handshake.
     static constexpr unsigned long cPeerTimeoutMs = 1000;
 
-    // ---- ESPNowConnection stores its peers
+    // ---- The peer this connection tracks
     struct PeerInfo
     {
       uint64_t id;                       // the 6 MAC bytes packed losslessly into 48 of the 64 bits
-      unsigned long timeLastMsgFromPeer; // time when we received the last msg from this peer
+      unsigned long timeLastMsgFromPeer; // millis() when the last message from this peer arrived
       esp_now_peer_info_t peer;
 
       uint8_t device;
@@ -110,10 +106,10 @@ class ESPNowConnection
     ESPNowConnection();
     virtual ~ESPNowConnection();
 
-    // To be called in setup(), defaults to Channel 1
+    // Call from setup(). Defaults to channel 1.
     virtual bool begin(uint8_t channel = cDefaultWifiChannel);
 
-    // Send data to the (single) paired peer
+    // Send a pairing request to the paired peer, or a pairing response to the device at mac.
     virtual bool send(const PairingRequestData& pd);
     virtual bool send(const PairingResponseData& pd, const uint8_t* mac);
     // Sends any application message to the paired peer. The first byte of T must be its
@@ -164,11 +160,12 @@ class ESPNowConnection
     bool isPaired() const;
 
     // Get information of the current peer. Returns a copy so callers can't be handed a
-    // dangling reference if the peer is cleared by the ESP-NOW receive/send task
-    // concurrently. Returns false if there is no peer.
+    // dangling reference if the peer is cleared concurrently, e.g. by removeLostPeer() in
+    // another task. Returns false if there is no peer.
     bool getPeerInfo(PeerInfo& outInfo) const;
 
-    // Clears the peer if it hasn't sent a message for a while = communication is lost
+    // Clears the peer when nothing has been heard from it for cPeerTimeoutMs: the link is lost.
+    // Call it regularly from loop(); nothing else drops a silent peer.
     void removeLostPeer();
     void msgReceived(const uint8_t mac[6]);
 
@@ -184,8 +181,8 @@ class ESPNowConnection
     static void copyFieldToCString(char* dest, std::size_t destSize, const char* field, std::size_t fieldLen);
 
   protected:
-    // A pairing message comes from a device we have no record of, so the frame's source address
-    // is all that identifies it.
+    // A pairing message may come from a device we have no record of, so the frame's source
+    // address is what identifies it.
     virtual void onPairingRequestMsg (const PairingRequestData&,  const uint8_t /*src*/[6]) {}
     virtual void onPairingResponseMsg(const PairingResponseData&, const uint8_t /*src*/[6]) {}
 
@@ -206,8 +203,8 @@ class ESPNowConnection
 
     // Sets the single peer this connection communicates with. Fails (returns false) if
     // a *different* peer is already set - single-peer design deliberately does not
-    // silently replace an existing pairing. The existing peer must be cleared first
-    // (via a send failure or removeLostPeer() timeout) before a new device can pair.
+    // silently replace an existing pairing. The existing peer must be cleared first, by
+    // removeLostPeer()'s timeout, before a new device can pair.
     // If mac already matches the current peer, this is a harmless no-op that returns
     // true, so a duplicate pairing request from an already-paired device still gets a
     // response instead of being silently dropped.
@@ -220,8 +217,8 @@ class ESPNowConnection
     // separate "is this a registered peer" check is needed before calling this.
     bool getPeer(const uint8_t mac[6], PeerInfo& outInfo) const;
 
-    // Clears the current peer, but only if mac matches it (a stale/unrelated mac -
-    // e.g. a failed send to some other address - is simply ignored).
+    // Clears the current peer, but only if mac matches it (a different mac is ignored).
+    // Not used by the library itself; available to derived classes.
     void removePeer(const uint8_t mac[6]);
 
     // One-off send to an address that is not (and should not become) our tracked peer, e.g. an
@@ -231,9 +228,9 @@ class ESPNowConnection
     bool sendToUnpairedAddress(const uint8_t mac[6], const void* data, size_t len);
 
   private:
-    // callback function that will be executed when data is received
+    // Called by ESP-NOW when a frame arrives
     static void dataRecvCB(const esp_now_recv_info_t* info, const uint8_t* incomingData, int len);
-    // callback when data is sent
+    // Called by ESP-NOW when a send has completed
     static void dataSentCB(const esp_now_send_info_t* info, esp_now_send_status_t status);
 
   protected:
@@ -241,7 +238,7 @@ class ESPNowConnection
 
   private:
     // Written once in begin(), before any task that reads it exists; read afterwards from
-    // setPeer()/sendToUnpairedAddress(), which can run in WiFi task context. Unsynchronised
+    // setPeer()/sendToUnpairedAddress(), which can run in WiFi task context. Unsynchronized
     // by design - there is no write after start-up.
     uint8_t myChannel;    // Wi-Fi channel set in begin(), reused by setPeer()
 

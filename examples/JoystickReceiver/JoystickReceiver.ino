@@ -22,7 +22,7 @@ struct __attribute__((packed)) JoystickMsg
 {
   uint8_t msgType         = cMsgJoystick;
   uint8_t protocolVersion = cJoystickVersion;
-  int16_t x               = 0; // -512 .. 511, 0 at centre
+  int16_t x               = 0; // -512 .. 511, 0 at center
   int16_t y               = 0;
   uint8_t fire            = 0; // 0 or 1
 };
@@ -221,6 +221,6 @@ void loop()
   Serial.print(y);
   Serial.print("  fire ");
   Serial.print(fire ? "on " : "off");
-  Serial.print("  taken ");
+  Serial.print("  received ");
   Serial.println(myLink.received());
 }
