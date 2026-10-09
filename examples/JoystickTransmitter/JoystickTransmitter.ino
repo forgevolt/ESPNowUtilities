@@ -118,15 +118,18 @@ bool readFireButton()
 {
   // Held until its own expiry rather than drawn afresh each call, which at the send rate would
   // rattle the button on and off twenty times a second.
-  static bool          pressed  = false;
-  static unsigned long changeAt = 0;
+  static bool          pressed   = false;
+  static unsigned long changedAt = 0;
+  static unsigned long holdMs    = 0;
 
   const unsigned long now = millis();
 
-  if (now >= changeAt)
+  // Elapsed time rather than a deadline, so the millis() wrap after 49.7 days does no harm.
+  if (now - changedAt >= holdMs)
   {
-    pressed  = !pressed;
-    changeAt = now + (pressed ? random(100, 600) : random(700, 3000));
+    pressed   = !pressed;
+    changedAt = now;
+    holdMs    = pressed ? random(100, 600) : random(700, 3000);
   }
 
   return pressed;
